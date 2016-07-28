@@ -1,0 +1,6 @@
+[package]
+name = "itersynth"
+version = "0.1.0"
+authors = ["Matthew D. Steele <mdsteele@alum.mit.edu>"]
+
+[dependencies]
