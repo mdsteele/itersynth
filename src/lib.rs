@@ -5,6 +5,8 @@
 use std::f32::consts::PI;
 use std::ops::{Add, Mul};
 
+// ========================================================================= //
+
 /// One sample value from a waveform.
 ///
 /// When a `Sample` is used as a [`Wave`](trait.Wave.html), it generates a
@@ -28,6 +30,8 @@ impl WaveGen for Sample {
 
     fn reset(&mut self) {}
 }
+
+// ========================================================================= //
 
 /// A sequence of sample values, forming a waveform.
 ///
@@ -62,6 +66,26 @@ impl Wave {
     /// Returns a new waveform that repeats this one forever.
     pub fn looped(self) -> Wave {
         Wave::new(Box::new(Looped { wave: self }))
+    }
+
+    /// Returns a new waveform by constraining this one with an ADSHR (attack,
+    /// decay, sustain, hold, release) envelope.
+    pub fn adshr(self,
+                 attack_time: f32,
+                 decay_time: f32,
+                 sustain_level: f32,
+                 hold_time: f32,
+                 release_time: f32)
+                 -> Wave {
+        self *
+        Wave::new(Box::new(Adshr {
+            attack_time: attack_time,
+            decay_time: decay_time,
+            sustain_level: sustain_level,
+            hold_time: hold_time,
+            release_time: release_time,
+            time: 0.0,
+        }))
     }
 }
 
@@ -103,6 +127,53 @@ impl WaveGen for Wave {
     }
 }
 
+// ========================================================================= //
+
+/// A waveform representing an ADSHR (attack, decay, sustain, hold, release)
+/// envelope.
+struct Adshr {
+    attack_time: f32,
+    decay_time: f32,
+    sustain_level: f32,
+    hold_time: f32,
+    release_time: f32,
+    time: f32,
+}
+
+impl WaveGen for Adshr {
+    fn next(&mut self, sample_rate: f32) -> Option<Sample> {
+        let time = self.time;
+        let value = if time < self.attack_time {
+            time / self.attack_time
+        } else {
+            let time = time - self.attack_time;
+            if time < self.decay_time {
+                1.0 - (time / self.decay_time) * (1.0 - self.sustain_level)
+            } else {
+                let time = time - self.decay_time;
+                if time < self.hold_time {
+                    self.sustain_level
+                } else {
+                    let time = time - self.hold_time;
+                    if time < self.release_time {
+                        (1.0 - time / self.release_time) * self.sustain_level
+                    } else {
+                        return None;
+                    }
+                }
+            }
+        };
+        self.time += 1.0 / sample_rate;
+        Some(value)
+    }
+
+    fn reset(&mut self) {
+        self.time = 0.0
+    }
+}
+
+// ========================================================================= //
+
 /// A waveform consisting of some other waveform, repeated indefinitely.
 struct Looped {
     wave: Wave,
@@ -120,6 +191,8 @@ impl WaveGen for Looped {
         self.wave.reset();
     }
 }
+
+// ========================================================================= //
 
 /// A waveform consisting of the product of two other waveforms.
 struct Product {
@@ -145,6 +218,8 @@ impl WaveGen for Product {
         self.wave2.reset();
     }
 }
+
+// ========================================================================= //
 
 /// A variable-frequency, variable-duty pulse wave, with an amplitude of 1.
 struct PulseWave {
@@ -189,6 +264,8 @@ impl WaveGen for PulseWave {
     }
 }
 
+// ========================================================================= //
+
 /// A variable-frequency sine wave, with an amplitude of 1.
 struct SineWave {
     freq: Wave,
@@ -221,6 +298,8 @@ impl WaveGen for SineWave {
     }
 }
 
+// ========================================================================= //
+
 /// A waveform consisting of the sum of two other waveforms.
 struct Sum {
     wave1: Wave,
@@ -245,6 +324,8 @@ impl WaveGen for Sum {
         self.wave2.reset();
     }
 }
+
+// ========================================================================= //
 
 #[cfg(test)]
 mod tests {
@@ -293,3 +374,5 @@ mod tests {
         assert_approx!(0.5, wave.next(1.0).unwrap());
     }
 }
+
+// ========================================================================= //
