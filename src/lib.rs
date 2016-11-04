@@ -42,11 +42,9 @@ pub struct Wave {
 }
 
 impl Wave {
-    /// Creates a sine wave, with an amplitude of 1, whose frequency over time
-    /// is controlled by the input waveform (which may be a constant).  The
-    /// input frequency values are measured in hertz (cycles per second).
-    pub fn sine<F: Into<Wave>>(freq: F) -> Wave {
-        Wave::new(Box::new(SineWave::new(freq.into())))
+    /// Creates a waveform using the given generator.
+    pub fn new(generator: Box<WaveGen>) -> Wave {
+        Wave { generator: generator }
     }
 
     /// Creates a pulse wave whose frequency over time is controlled by the
@@ -58,9 +56,21 @@ impl Wave {
         Wave::new(Box::new(PulseWave::new(freq.into(), duty.into())))
     }
 
-    /// Creates a waveform using the given generator.
-    pub fn new(generator: Box<WaveGen>) -> Wave {
-        Wave { generator: generator }
+    /// Creates a sine wave, with an amplitude of 1, whose frequency over time
+    /// is controlled by the input waveform (which may be a constant).  The
+    /// input frequency values are measured in hertz (cycles per second).
+    pub fn sine<F: Into<Wave>>(freq: F) -> Wave {
+        Wave::new(Box::new(SineWave::new(freq.into())))
+    }
+
+    /// Creates a triangle wave whose frequency over time is controlled by the
+    /// `freq` waveform, and whose duty cycle over time is controlled by the
+    /// `duty` waveform (either or both of which may be constants).  The input
+    /// frequency values are measured in hertz (cycles per second); the input
+    /// duty values should be between 0 and 1 (with 0.5 being a triangle wave
+    /// and 0 or 1 being a sawtooth wave).
+    pub fn triangle<F: Into<Wave>, D: Into<Wave>>(freq: F, duty: D) -> Wave {
+        Wave::new(Box::new(TriangleWave::new(freq.into(), duty.into())))
     }
 
     /// Returns a new waveform that repeats this one forever.
@@ -327,6 +337,51 @@ impl WaveGen for Sum {
 
 // ========================================================================= //
 
+/// A variable-frequency, variable-duty triangle wave, with an amplitude of 1.
+struct TriangleWave {
+    freq: Wave,
+    duty: Wave,
+    phase: f32,
+}
+
+impl TriangleWave {
+    fn new(freq: Wave, duty: Wave) -> TriangleWave {
+        TriangleWave {
+            freq: freq,
+            duty: duty,
+            phase: 0.0,
+        }
+    }
+}
+
+impl WaveGen for TriangleWave {
+    fn next(&mut self, audio_rate: f32) -> Option<Sample> {
+        let freq = match self.freq.next(audio_rate) {
+            Some(freq) => freq,
+            None => return None,
+        };
+        let duty = match self.duty.next(audio_rate) {
+            Some(duty) => duty,
+            None => return None,
+        };
+        let phase = self.phase;
+        self.phase = (self.phase + freq / audio_rate) % 1.0;
+        Some(if phase < duty {
+            2.0 * phase / duty - 1.0
+        } else {
+            1.0 - 2.0 * (phase - duty) / (1.0 - duty)
+        })
+    }
+
+    fn reset(&mut self) {
+        self.freq.reset();
+        self.duty.reset();
+        self.phase = 0.0;
+    }
+}
+
+// ========================================================================= //
+
 #[cfg(test)]
 mod tests {
     use std::f32::consts::SQRT_2;
@@ -363,6 +418,24 @@ mod tests {
         assert_approx!(0.0, wave.next(sample_rate).unwrap());
         assert_approx!(0.5 * SQRT_2, wave.next(sample_rate).unwrap());
         assert_approx!(1.0, wave.next(sample_rate).unwrap());
+    }
+
+    #[test]
+    fn triangle_wave() {
+        let sample_rate = 10.0;
+        let mut wave = Wave::triangle(1.0, 0.8);
+        assert_approx!(-1.0, wave.next(sample_rate).unwrap());
+        assert_approx!(-0.75, wave.next(sample_rate).unwrap());
+        assert_approx!(-0.5, wave.next(sample_rate).unwrap());
+        assert_approx!(-0.25, wave.next(sample_rate).unwrap());
+        assert_approx!(0.0, wave.next(sample_rate).unwrap());
+        assert_approx!(0.25, wave.next(sample_rate).unwrap());
+        assert_approx!(0.5, wave.next(sample_rate).unwrap());
+        assert_approx!(0.75, wave.next(sample_rate).unwrap());
+        assert_approx!(1.0, wave.next(sample_rate).unwrap());
+        assert_approx!(0.0, wave.next(sample_rate).unwrap());
+        assert_approx!(-1.0, wave.next(sample_rate).unwrap());
+        assert_approx!(-0.75, wave.next(sample_rate).unwrap());
     }
 
     #[test]
