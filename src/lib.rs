@@ -47,6 +47,13 @@ impl Wave {
         Wave { generator: generator }
     }
 
+    /// Creates a noise wave, with an amplitude of 1, whose frequency over time
+    /// is controlled by the input waveform (which may be a constant).  The
+    /// input frequency values are measured in hertz (cycles per second).
+    pub fn noise<F: Into<Wave>>(freq: F) -> Wave {
+        Wave::new(Box::new(NoiseWave::new(freq.into())))
+    }
+
     /// Creates a pulse wave whose frequency over time is controlled by the
     /// `freq` waveform, and whose duty cycle over time is controlled by the
     /// `duty` waveform (either or both of which may be constants).  The input
@@ -204,6 +211,57 @@ impl WaveGen for Looped {
 
 // ========================================================================= //
 
+const NOISE_INIT_SEED: u64 = 123456789123456789;
+
+/// A variable-frequency noise wave, with an amplitude of 1.
+struct NoiseWave {
+    freq: Wave,
+    seed: u64,
+    phase: f32,
+}
+
+impl NoiseWave {
+    fn new(freq: Wave) -> NoiseWave {
+        NoiseWave {
+            freq: freq,
+            seed: NOISE_INIT_SEED,
+            phase: 0.0,
+        }
+    }
+}
+
+impl WaveGen for NoiseWave {
+    fn next(&mut self, sample_rate: f32) -> Option<Sample> {
+        let freq = match self.freq.next(sample_rate) {
+            Some(freq) => freq,
+            None => return None,
+        };
+        let phase = self.phase;
+        let seed = self.seed;
+        self.phase += 2.0 * freq / sample_rate;
+        if self.phase >= 64.0 {
+            self.phase %= 64.0;
+            // This is a simple linear congruential generator, using parameters
+            // suggested by http://nuclear.llnl.gov/CNP/rng/rngman/node4.html
+            self.seed = self.seed.overflowing_mul(2862933555777941757).0;
+            self.seed = self.seed.overflowing_add(3037000493u64).0;
+        }
+        Some(if ((seed >> (phase as i32)) & 1) != 0 {
+            1.0
+        } else {
+            -1.0
+        })
+    }
+
+    fn reset(&mut self) {
+        self.freq.reset();
+        self.seed = NOISE_INIT_SEED;
+        self.phase = 0.0;
+    }
+}
+
+// ========================================================================= //
+
 /// A waveform consisting of the product of two other waveforms.
 struct Product {
     wave1: Wave,
@@ -249,17 +307,17 @@ impl PulseWave {
 }
 
 impl WaveGen for PulseWave {
-    fn next(&mut self, audio_rate: f32) -> Option<Sample> {
-        let freq = match self.freq.next(audio_rate) {
+    fn next(&mut self, sample_rate: f32) -> Option<Sample> {
+        let freq = match self.freq.next(sample_rate) {
             Some(freq) => freq,
             None => return None,
         };
-        let duty = match self.duty.next(audio_rate) {
+        let duty = match self.duty.next(sample_rate) {
             Some(duty) => duty,
             None => return None,
         };
         let phase = self.phase;
-        self.phase = (self.phase + freq / audio_rate) % 1.0;
+        self.phase = (self.phase + freq / sample_rate) % 1.0;
         Some(if phase < duty {
             1.0
         } else {
@@ -355,17 +413,17 @@ impl TriangleWave {
 }
 
 impl WaveGen for TriangleWave {
-    fn next(&mut self, audio_rate: f32) -> Option<Sample> {
-        let freq = match self.freq.next(audio_rate) {
+    fn next(&mut self, sample_rate: f32) -> Option<Sample> {
+        let freq = match self.freq.next(sample_rate) {
             Some(freq) => freq,
             None => return None,
         };
-        let duty = match self.duty.next(audio_rate) {
+        let duty = match self.duty.next(sample_rate) {
             Some(duty) => duty,
             None => return None,
         };
         let phase = self.phase;
-        self.phase = (self.phase + freq / audio_rate) % 1.0;
+        self.phase = (self.phase + freq / sample_rate) % 1.0;
         Some(if phase < duty {
             2.0 * phase / duty - 1.0
         } else {

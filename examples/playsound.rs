@@ -10,9 +10,17 @@ use std::time::Duration;
 // ========================================================================= //
 
 named!(any_wave<Wave>,
-       alt!(const_wave | product_wave | pulse_wave | sine_wave | sum_wave));
+       alt!(const_wave | noise_wave | product_wave | pulse_wave | sine_wave |
+            sum_wave | triangle_wave));
 
 named!(const_wave<Wave>, map!(float_literal, Into::into));
+
+named!(noise_wave<Wave>,
+       map!(preceded!(tag!("noise"),
+                      delimited!(char!('('),
+                                 any_wave,
+                                 char!(')'))),
+            Wave::noise));
 
 named!(product_wave<Wave>,
        map!(preceded!(tag!("mul"),
@@ -47,6 +55,15 @@ named!(sum_wave<Wave>,
                                                  any_wave),
                                  char!(')'))),
             |(wave1, wave2)| wave1 + wave2));
+
+named!(triangle_wave<Wave>,
+       map!(preceded!(tag!("triangle"),
+                      delimited!(char!('('),
+                                 separated_pair!(any_wave,
+                                                 char!(','),
+                                                 any_wave),
+                                 char!(')'))),
+            |(freq, duty)| Wave::triangle(freq, duty)));
 
 named!(float_literal<f32>,
        map_res!(map_res!(recognize!(pair!(nom::digit,
