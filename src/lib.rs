@@ -16,8 +16,8 @@ pub type Sample = f32;
 /// A waveform generator.
 pub trait WaveGen: Send {
     /// Gets the next sample value, or returns `None` if the waveform has
-    /// finished.  The `sample_rate` gives the number of samples per second.
-    fn next(&mut self, sample_rate: f32) -> Option<Sample>;
+    /// finished.  The `step` gives the number of seconds to advance.
+    fn next(&mut self, step: f32) -> Option<Sample>;
 
     /// Resets the waveform back to the beginning.
     fn reset(&mut self);
@@ -135,8 +135,8 @@ impl<W: Into<Wave>> Mul<W> for Wave {
 }
 
 impl WaveGen for Wave {
-    fn next(&mut self, sample_rate: f32) -> Option<Sample> {
-        self.generator.next(sample_rate)
+    fn next(&mut self, step: f32) -> Option<Sample> {
+        self.generator.next(step)
     }
 
     fn reset(&mut self) {
@@ -158,7 +158,7 @@ struct Adshr {
 }
 
 impl WaveGen for Adshr {
-    fn next(&mut self, sample_rate: f32) -> Option<Sample> {
+    fn next(&mut self, step: f32) -> Option<Sample> {
         let time = self.time;
         let value = if time < self.attack_time {
             time / self.attack_time
@@ -180,7 +180,7 @@ impl WaveGen for Adshr {
                 }
             }
         };
-        self.time += 1.0 / sample_rate;
+        self.time += step;
         Some(value)
     }
 
@@ -197,10 +197,10 @@ struct Looped {
 }
 
 impl WaveGen for Looped {
-    fn next(&mut self, sample_rate: f32) -> Option<Sample> {
-        self.wave.next(sample_rate).or_else(|| {
+    fn next(&mut self, step: f32) -> Option<Sample> {
+        self.wave.next(step).or_else(|| {
             self.wave.reset();
-            self.wave.next(sample_rate)
+            self.wave.next(step)
         })
     }
 
@@ -231,14 +231,14 @@ impl NoiseWave {
 }
 
 impl WaveGen for NoiseWave {
-    fn next(&mut self, sample_rate: f32) -> Option<Sample> {
-        let freq = match self.freq.next(sample_rate) {
+    fn next(&mut self, step: f32) -> Option<Sample> {
+        let freq = match self.freq.next(step) {
             Some(freq) => freq,
             None => return None,
         };
         let phase = self.phase;
         let seed = self.seed;
-        self.phase += 2.0 * freq / sample_rate;
+        self.phase += 2.0 * freq * step;
         if self.phase >= 64.0 {
             self.phase %= 64.0;
             // This is a simple linear congruential generator, using parameters
@@ -269,10 +269,10 @@ struct Product {
 }
 
 impl WaveGen for Product {
-    fn next(&mut self, sample_rate: f32) -> Option<Sample> {
-        match self.wave1.next(sample_rate) {
+    fn next(&mut self, step: f32) -> Option<Sample> {
+        match self.wave1.next(step) {
             Some(value1) => {
-                match self.wave2.next(sample_rate) {
+                match self.wave2.next(step) {
                     Some(value2) => Some(value1 * value2),
                     None => None,
                 }
@@ -307,17 +307,17 @@ impl PulseWave {
 }
 
 impl WaveGen for PulseWave {
-    fn next(&mut self, sample_rate: f32) -> Option<Sample> {
-        let freq = match self.freq.next(sample_rate) {
+    fn next(&mut self, step: f32) -> Option<Sample> {
+        let freq = match self.freq.next(step) {
             Some(freq) => freq,
             None => return None,
         };
-        let duty = match self.duty.next(sample_rate) {
+        let duty = match self.duty.next(step) {
             Some(duty) => duty,
             None => return None,
         };
         let phase = self.phase;
-        self.phase = (self.phase + freq / sample_rate) % 1.0;
+        self.phase = (self.phase + freq * step) % 1.0;
         Some(if phase < duty {
             1.0
         } else {
@@ -350,13 +350,13 @@ impl SineWave {
 }
 
 impl WaveGen for SineWave {
-    fn next(&mut self, sample_rate: f32) -> Option<Sample> {
-        let freq = match self.freq.next(sample_rate) {
+    fn next(&mut self, step: f32) -> Option<Sample> {
+        let freq = match self.freq.next(step) {
             Some(freq) => freq,
             None => return None,
         };
         let phase = self.phase;
-        self.phase = (self.phase + freq / sample_rate) % 1.0;
+        self.phase = (self.phase + freq * step) % 1.0;
         Some((2.0 * PI * phase).sin())
     }
 
@@ -375,15 +375,15 @@ struct Sum {
 }
 
 impl WaveGen for Sum {
-    fn next(&mut self, sample_rate: f32) -> Option<Sample> {
-        match self.wave1.next(sample_rate) {
+    fn next(&mut self, step: f32) -> Option<Sample> {
+        match self.wave1.next(step) {
             Some(value1) => {
-                Some(match self.wave2.next(sample_rate) {
+                Some(match self.wave2.next(step) {
                     Some(value2) => value1 + value2,
                     None => value1,
                 })
             }
-            None => self.wave2.next(sample_rate),
+            None => self.wave2.next(step),
         }
     }
 
@@ -413,17 +413,17 @@ impl TriangleWave {
 }
 
 impl WaveGen for TriangleWave {
-    fn next(&mut self, sample_rate: f32) -> Option<Sample> {
-        let freq = match self.freq.next(sample_rate) {
+    fn next(&mut self, step: f32) -> Option<Sample> {
+        let freq = match self.freq.next(step) {
             Some(freq) => freq,
             None => return None,
         };
-        let duty = match self.duty.next(sample_rate) {
+        let duty = match self.duty.next(step) {
             Some(duty) => duty,
             None => return None,
         };
         let phase = self.phase;
-        self.phase = (self.phase + freq / sample_rate) % 1.0;
+        self.phase = (self.phase + freq * step) % 1.0;
         Some(if phase < duty {
             2.0 * phase / duty - 1.0
         } else {
@@ -461,39 +461,39 @@ mod tests {
 
     #[test]
     fn sine_wave() {
-        let sample_rate = 22050.0;
+        let step = 1.0 / 22050.0;
         let mut wave = Wave::sine(2756.25);
-        assert_approx!(0.0, wave.next(sample_rate).unwrap());
-        assert_approx!(0.5 * SQRT_2, wave.next(sample_rate).unwrap());
-        assert_approx!(1.0, wave.next(sample_rate).unwrap());
-        assert_approx!(0.5 * SQRT_2, wave.next(sample_rate).unwrap());
-        assert_approx!(0.0, wave.next(sample_rate).unwrap());
-        assert_approx!(-0.5 * SQRT_2, wave.next(sample_rate).unwrap());
-        assert_approx!(-1.0, wave.next(sample_rate).unwrap());
-        assert_approx!(-0.5 * SQRT_2, wave.next(sample_rate).unwrap());
-        assert_approx!(0.0, wave.next(sample_rate).unwrap());
+        assert_approx!(0.0, wave.next(step).unwrap());
+        assert_approx!(0.5 * SQRT_2, wave.next(step).unwrap());
+        assert_approx!(1.0, wave.next(step).unwrap());
+        assert_approx!(0.5 * SQRT_2, wave.next(step).unwrap());
+        assert_approx!(0.0, wave.next(step).unwrap());
+        assert_approx!(-0.5 * SQRT_2, wave.next(step).unwrap());
+        assert_approx!(-1.0, wave.next(step).unwrap());
+        assert_approx!(-0.5 * SQRT_2, wave.next(step).unwrap());
+        assert_approx!(0.0, wave.next(step).unwrap());
         wave.reset();
-        assert_approx!(0.0, wave.next(sample_rate).unwrap());
-        assert_approx!(0.5 * SQRT_2, wave.next(sample_rate).unwrap());
-        assert_approx!(1.0, wave.next(sample_rate).unwrap());
+        assert_approx!(0.0, wave.next(step).unwrap());
+        assert_approx!(0.5 * SQRT_2, wave.next(step).unwrap());
+        assert_approx!(1.0, wave.next(step).unwrap());
     }
 
     #[test]
     fn triangle_wave() {
-        let sample_rate = 10.0;
+        let step = 0.1;
         let mut wave = Wave::triangle(1.0, 0.8);
-        assert_approx!(-1.0, wave.next(sample_rate).unwrap());
-        assert_approx!(-0.75, wave.next(sample_rate).unwrap());
-        assert_approx!(-0.5, wave.next(sample_rate).unwrap());
-        assert_approx!(-0.25, wave.next(sample_rate).unwrap());
-        assert_approx!(0.0, wave.next(sample_rate).unwrap());
-        assert_approx!(0.25, wave.next(sample_rate).unwrap());
-        assert_approx!(0.5, wave.next(sample_rate).unwrap());
-        assert_approx!(0.75, wave.next(sample_rate).unwrap());
-        assert_approx!(1.0, wave.next(sample_rate).unwrap());
-        assert_approx!(0.0, wave.next(sample_rate).unwrap());
-        assert_approx!(-1.0, wave.next(sample_rate).unwrap());
-        assert_approx!(-0.75, wave.next(sample_rate).unwrap());
+        assert_approx!(-1.0, wave.next(step).unwrap());
+        assert_approx!(-0.75, wave.next(step).unwrap());
+        assert_approx!(-0.5, wave.next(step).unwrap());
+        assert_approx!(-0.25, wave.next(step).unwrap());
+        assert_approx!(0.0, wave.next(step).unwrap());
+        assert_approx!(0.25, wave.next(step).unwrap());
+        assert_approx!(0.5, wave.next(step).unwrap());
+        assert_approx!(0.75, wave.next(step).unwrap());
+        assert_approx!(1.0, wave.next(step).unwrap());
+        assert_approx!(0.0, wave.next(step).unwrap());
+        assert_approx!(-1.0, wave.next(step).unwrap());
+        assert_approx!(-0.75, wave.next(step).unwrap());
     }
 
     #[test]

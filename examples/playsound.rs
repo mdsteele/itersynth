@@ -76,14 +76,14 @@ named!(float_literal<f32>,
 
 struct WaveCallback {
     wave: itersynth::Wave,
-    audio_rate: i32,
+    step: f32,
 }
 
 impl WaveCallback {
     fn new(wave: itersynth::Wave, audio_rate: i32) -> WaveCallback {
         WaveCallback {
             wave: wave,
-            audio_rate: audio_rate,
+            step: 1.0 / audio_rate as f32,
         }
     }
 }
@@ -92,9 +92,8 @@ impl sdl2::audio::AudioCallback for WaveCallback {
     type Channel = itersynth::Sample;
 
     fn callback(&mut self, out: &mut [itersynth::Sample]) {
-        let audio_rate = self.audio_rate as f32;
         for sample in out.iter_mut() {
-            *sample = self.wave.next(audio_rate).unwrap_or(0.0);
+            *sample = self.wave.next(self.step).unwrap_or(0.0);
         }
     }
 }
