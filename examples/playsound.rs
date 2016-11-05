@@ -11,7 +11,7 @@ use std::time::Duration;
 
 named!(any_wave<Wave>,
        alt!(const_wave | delay_wave | noise_wave | product_wave | pulse_wave |
-            sine_wave | sum_wave | triangle_wave));
+            sine_wave | slide_wave | sum_wave | triangle_wave));
 
 named!(const_wave<Wave>, map!(float_literal, Into::into));
 
@@ -56,6 +56,18 @@ named!(sine_wave<Wave>,
                                  char!(')'))),
             Wave::sine));
 
+named!(slide_wave<Wave>,
+       map!(preceded!(tag!("slide"),
+                      delimited!(char!('('),
+                                 separated_pair!(
+                                     separated_pair!(float_literal,
+                                                     char!(','),
+                                                     float_literal),
+                                     char!(','),
+                                     float_literal),
+                                 char!(')'))),
+            |((pos, vel), acc)| Wave::slide(pos, vel, acc)));
+
 named!(sum_wave<Wave>,
        map!(preceded!(tag!("add"),
                       delimited!(char!('('),
@@ -75,7 +87,8 @@ named!(triangle_wave<Wave>,
             |(freq, duty)| Wave::triangle(freq, duty)));
 
 named!(float_literal<f32>,
-       map_res!(map_res!(recognize!(pair!(nom::digit,
+       map_res!(map_res!(recognize!(pair!(pair!(opt!(char!('-')),
+                                                nom::digit),
                                           opt!(pair!(char!('.'),
                                                      nom::digit)))),
                          str::from_utf8),

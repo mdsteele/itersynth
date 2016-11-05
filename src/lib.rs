@@ -70,6 +70,14 @@ impl Wave {
         Wave::new(Box::new(SineWave::new(freq.into())))
     }
 
+    /// Creates a wave with the shape a parabola; it's initial value is `pos`,
+    /// it's initial velocity is `vel` (units/second), and it accelerates with
+    /// `acc` (units/second/second).  Generally not useful as a sound wave, but
+    /// can be used to control e.g. the frequency of another wave.
+    pub fn slide(pos: f32, vel: f32, acc: f32) -> Wave {
+        Wave::new(Box::new(SlideWave::new(pos, vel, acc)))
+    }
+
     /// Creates a triangle wave whose frequency over time is controlled by the
     /// `freq` waveform, and whose duty cycle over time is controlled by the
     /// `duty` waveform (either or both of which may be constants).  The input
@@ -99,7 +107,6 @@ impl Wave {
                  hold_time: f32,
                  release_time: f32)
                  -> Wave {
-        self *
         Wave::new(Box::new(Adshr {
             attack_time: attack_time,
             decay_time: decay_time,
@@ -107,7 +114,7 @@ impl Wave {
             hold_time: hold_time,
             release_time: release_time,
             time: 0.0,
-        }))
+        })) * self
     }
 }
 
@@ -407,6 +414,39 @@ impl WaveGen for SineWave {
     fn reset(&mut self) {
         self.freq.reset();
         self.phase = 0.0;
+    }
+}
+
+// ========================================================================= //
+
+/// A parabolic wave.
+struct SlideWave {
+    pos: f32,
+    vel: f32,
+    half_acc: f32,
+    time: f32,
+}
+
+impl SlideWave {
+    fn new(pos: f32, vel: f32, acc: f32) -> SlideWave {
+        SlideWave {
+            pos: pos,
+            vel: vel,
+            half_acc: 0.5 * acc,
+            time: 0.0,
+        }
+    }
+}
+
+impl WaveGen for SlideWave {
+    fn next(&mut self, step: f32) -> Option<Sample> {
+        let time = self.time;
+        self.time += step;
+        Some(self.pos + (self.vel + self.half_acc * time) * time)
+    }
+
+    fn reset(&mut self) {
+        self.time = 0.0;
     }
 }
 
