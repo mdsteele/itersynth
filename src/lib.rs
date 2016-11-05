@@ -9,8 +9,8 @@ use std::ops::{Add, Mul};
 
 /// One sample value from a waveform.
 ///
-/// When a `Sample` is used as a [`Wave`](trait.Wave.html), it generates a
-/// constant value forever.
+/// When a `Sample` is used as a [`WaveGen`](trait.WaveGen.html), it generates
+/// a constant value forever.
 pub type Sample = f32;
 
 /// A waveform generator.
@@ -21,6 +21,9 @@ pub trait WaveGen: Send {
 
     /// Resets the waveform back to the beginning.
     fn reset(&mut self);
+
+    /// Clones the `WaveGen` and wraps it as a `Wave`.
+    fn as_wave(&self) -> Wave;
 }
 
 impl WaveGen for Sample {
@@ -29,6 +32,8 @@ impl WaveGen for Sample {
     }
 
     fn reset(&mut self) {}
+
+    fn as_wave(&self) -> Wave { Wave::new(Box::new(*self)) }
 }
 
 // ========================================================================= //
@@ -70,10 +75,11 @@ impl Wave {
         Wave::new(Box::new(SineWave::new(freq.into())))
     }
 
-    /// Creates a wave with the shape a parabola; it's initial value is `pos`,
-    /// it's initial velocity is `vel` (units/second), and it accelerates with
-    /// `acc` (units/second/second).  Generally not useful as a sound wave, but
-    /// can be used to control e.g. the frequency of another wave.
+    /// Creates a wave with the shape of a parabola; it's initial value is
+    /// `pos`, it's initial velocity is `vel` (units/second), and it
+    /// accelerates with `acc` (units/second/second).  Generally not useful as
+    /// a sound wave, but can be used to control e.g. the frequency of another
+    /// wave.
     pub fn slide(pos: f32, vel: f32, acc: f32) -> Wave {
         Wave::new(Box::new(SlideWave::new(pos, vel, acc)))
     }
@@ -129,6 +135,10 @@ impl<W: Into<Wave>> Add<W> for Wave {
     }
 }
 
+impl Clone for Wave {
+    fn clone(&self) -> Wave { self.generator.as_wave() }
+}
+
 impl From<Sample> for Wave {
     fn from(sample: Sample) -> Wave {
         Wave::new(Box::new(sample))
@@ -154,12 +164,15 @@ impl WaveGen for Wave {
     fn reset(&mut self) {
         self.generator.reset();
     }
+
+    fn as_wave(&self) -> Wave { self.generator.as_wave() }
 }
 
 // ========================================================================= //
 
 /// A waveform representing an ADSHR (attack, decay, sustain, hold, release)
 /// envelope.
+#[derive(Clone)]
 struct Adshr {
     attack_time: f32,
     decay_time: f32,
@@ -199,11 +212,14 @@ impl WaveGen for Adshr {
     fn reset(&mut self) {
         self.time = 0.0
     }
+
+    fn as_wave(&self) -> Wave { Wave::new(Box::new(self.clone())) }
 }
 
 // ========================================================================= //
 
 /// A waveform consisting of some other waveform delayed by a fixed duration.
+#[derive(Clone)]
 struct Delayed {
     wave: Wave,
     delay: f32,
@@ -238,11 +254,14 @@ impl WaveGen for Delayed {
         self.wave.reset();
         self.time = 0.0;
     }
+
+    fn as_wave(&self) -> Wave { Wave::new(Box::new(self.clone())) }
 }
 
 // ========================================================================= //
 
 /// A waveform consisting of some other waveform, repeated indefinitely.
+#[derive(Clone)]
 struct Looped {
     wave: Wave,
 }
@@ -258,6 +277,8 @@ impl WaveGen for Looped {
     fn reset(&mut self) {
         self.wave.reset();
     }
+
+    fn as_wave(&self) -> Wave { Wave::new(Box::new(self.clone())) }
 }
 
 // ========================================================================= //
@@ -265,6 +286,7 @@ impl WaveGen for Looped {
 const NOISE_INIT_SEED: u64 = 123456789123456789;
 
 /// A variable-frequency noise wave, with an amplitude of 1.
+#[derive(Clone)]
 struct NoiseWave {
     freq: Wave,
     seed: u64,
@@ -309,11 +331,14 @@ impl WaveGen for NoiseWave {
         self.seed = NOISE_INIT_SEED;
         self.phase = 0.0;
     }
+
+    fn as_wave(&self) -> Wave { Wave::new(Box::new(self.clone())) }
 }
 
 // ========================================================================= //
 
 /// A waveform consisting of the product of two other waveforms.
+#[derive(Clone)]
 struct Product {
     wave1: Wave,
     wave2: Wave,
@@ -336,11 +361,14 @@ impl WaveGen for Product {
         self.wave1.reset();
         self.wave2.reset();
     }
+
+    fn as_wave(&self) -> Wave { Wave::new(Box::new(self.clone())) }
 }
 
 // ========================================================================= //
 
 /// A variable-frequency, variable-duty pulse wave, with an amplitude of 1.
+#[derive(Clone)]
 struct PulseWave {
     freq: Wave,
     duty: Wave,
@@ -381,11 +409,14 @@ impl WaveGen for PulseWave {
         self.duty.reset();
         self.phase = 0.0;
     }
+
+    fn as_wave(&self) -> Wave { Wave::new(Box::new(self.clone())) }
 }
 
 // ========================================================================= //
 
 /// A variable-frequency sine wave, with an amplitude of 1.
+#[derive(Clone)]
 struct SineWave {
     freq: Wave,
     phase: f32,
@@ -415,11 +446,14 @@ impl WaveGen for SineWave {
         self.freq.reset();
         self.phase = 0.0;
     }
+
+    fn as_wave(&self) -> Wave { Wave::new(Box::new(self.clone())) }
 }
 
 // ========================================================================= //
 
 /// A parabolic wave.
+#[derive(Clone)]
 struct SlideWave {
     pos: f32,
     vel: f32,
@@ -448,11 +482,14 @@ impl WaveGen for SlideWave {
     fn reset(&mut self) {
         self.time = 0.0;
     }
+
+    fn as_wave(&self) -> Wave { Wave::new(Box::new(self.clone())) }
 }
 
 // ========================================================================= //
 
 /// A waveform consisting of the sum of two other waveforms.
+#[derive(Clone)]
 struct Sum {
     wave1: Wave,
     wave2: Wave,
@@ -475,11 +512,14 @@ impl WaveGen for Sum {
         self.wave1.reset();
         self.wave2.reset();
     }
+
+    fn as_wave(&self) -> Wave { Wave::new(Box::new(self.clone())) }
 }
 
 // ========================================================================= //
 
 /// A variable-frequency, variable-duty triangle wave, with an amplitude of 1.
+#[derive(Clone)]
 struct TriangleWave {
     freq: Wave,
     duty: Wave,
@@ -520,6 +560,8 @@ impl WaveGen for TriangleWave {
         self.duty.reset();
         self.phase = 0.0;
     }
+
+    fn as_wave(&self) -> Wave { Wave::new(Box::new(self.clone())) }
 }
 
 // ========================================================================= //
@@ -578,6 +620,17 @@ mod tests {
         assert_approx!(0.0, wave.next(step).unwrap());
         assert_approx!(-1.0, wave.next(step).unwrap());
         assert_approx!(-0.75, wave.next(step).unwrap());
+    }
+
+    #[test]
+    fn wave_clone() {
+        let step = 1.0 / 500.0;
+        let mut wave1 = Wave::noise(440.0);
+        let mut wave2 = wave1.clone();
+        for _ in 0..1000 {
+            assert_approx!(wave1.next(step).unwrap(),
+                           wave2.next(step).unwrap());
+        }
     }
 
     #[test]
