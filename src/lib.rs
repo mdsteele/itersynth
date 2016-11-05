@@ -80,6 +80,11 @@ impl Wave {
         Wave::new(Box::new(TriangleWave::new(freq.into(), duty.into())))
     }
 
+    /// Returns a new waveform that delays this one for a duration.
+    pub fn delayed(self, seconds: f32) -> Wave {
+        Wave::new(Box::new(Delayed::new(self, seconds)))
+    }
+
     /// Returns a new waveform that repeats this one forever.
     pub fn looped(self) -> Wave {
         Wave::new(Box::new(Looped { wave: self }))
@@ -186,6 +191,45 @@ impl WaveGen for Adshr {
 
     fn reset(&mut self) {
         self.time = 0.0
+    }
+}
+
+// ========================================================================= //
+
+/// A waveform consisting of some other waveform delayed by a fixed duration.
+struct Delayed {
+    wave: Wave,
+    delay: f32,
+    time: f32,
+}
+
+impl Delayed {
+    fn new(wave: Wave, delay: f32) -> Delayed {
+        Delayed {
+            wave: wave,
+            delay: delay,
+            time: 0.0,
+        }
+    }
+}
+
+impl WaveGen for Delayed {
+    fn next(&mut self, step: f32) -> Option<Sample> {
+        if self.time >= self.delay {
+            self.wave.next(step)
+        } else {
+            self.time += step;
+            if self.time > self.delay {
+                // Advance wave but ignore result.
+                self.wave.next(self.time - self.delay);
+            }
+            None
+        }
+    }
+
+    fn reset(&mut self) {
+        self.wave.reset();
+        self.time = 0.0;
     }
 }
 

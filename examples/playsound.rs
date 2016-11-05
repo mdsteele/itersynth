@@ -10,10 +10,19 @@ use std::time::Duration;
 // ========================================================================= //
 
 named!(any_wave<Wave>,
-       alt!(const_wave | noise_wave | product_wave | pulse_wave | sine_wave |
-            sum_wave | triangle_wave));
+       alt!(const_wave | delay_wave | noise_wave | product_wave | pulse_wave |
+            sine_wave | sum_wave | triangle_wave));
 
 named!(const_wave<Wave>, map!(float_literal, Into::into));
+
+named!(delay_wave<Wave>,
+       map!(preceded!(tag!("delay"),
+                      delimited!(char!('('),
+                                 separated_pair!(any_wave,
+                                                 char!(','),
+                                                 float_literal),
+                                 char!(')'))),
+            |(wave, delay): (Wave, f32)| wave.delayed(delay)));
 
 named!(noise_wave<Wave>,
        map!(preceded!(tag!("noise"),
