@@ -9,20 +9,39 @@ use std::time::Duration;
 
 // ========================================================================= //
 
+pub enum WaveOp {
+    Add(Wave),
+    Adshr(f32, f32, f32, f32, f32),
+    Delayed(f32),
+    Looped,
+    Mul(Wave),
+}
+
+impl WaveOp {
+    fn apply(self, wave: Wave) -> Wave {
+        match self {
+            WaveOp::Add(other) => wave + other,
+            WaveOp::Adshr(a, d, s, h, r) => wave.adshr(a, d, s, h, r),
+            WaveOp::Delayed(time) => wave.delayed(time),
+            WaveOp::Looped => wave.looped(),
+            WaveOp::Mul(other) => wave * other,
+        }
+    }
+}
+
+// ========================================================================= //
+
 named!(any_wave<Wave>,
-       alt!(const_wave | delay_wave | noise_wave | product_wave | pulse_wave |
-            sine_wave | slide_wave | sum_wave | triangle_wave));
+       map!(pair!(base_wave, many0!(wave_suffix)),
+            |(wave, ops): (Wave, Vec<WaveOp>)| {
+                ops.into_iter().fold(wave, |wave, op| op.apply(wave))
+            }));
+
+named!(base_wave<Wave>,
+       alt!(const_wave | noise_wave | product_wave | pulse_wave | sine_wave |
+            slide_wave | sum_wave | triangle_wave));
 
 named!(const_wave<Wave>, map!(float_literal, Into::into));
-
-named!(delay_wave<Wave>,
-       map!(preceded!(tag!("delay"),
-                      delimited!(char!('('),
-                                 separated_pair!(any_wave,
-                                                 char!(','),
-                                                 float_literal),
-                                 char!(')'))),
-            |(wave, delay): (Wave, f32)| wave.delayed(delay)));
 
 named!(noise_wave<Wave>,
        map!(preceded!(tag!("noise"),
@@ -86,6 +105,55 @@ named!(triangle_wave<Wave>,
                                  char!(')'))),
             |(freq, duty)| Wave::triangle(freq, duty)));
 
+// ========================================================================= //
+
+named!(wave_suffix<WaveOp>,
+       alt!(add_suffix | adshr_suffix | delayed_suffix | looped_suffix |
+            mul_suffix));
+
+named!(add_suffix<WaveOp>,
+       map!(preceded!(tag!(".add"),
+                      delimited!(char!('('),
+                                 any_wave,
+                                 char!(')'))),
+            WaveOp::Add));
+
+named!(adshr_suffix<WaveOp>,
+       map!(preceded!(tag!(".adshr"),
+                      delimited!(char!('('),
+                                 separated_pair!(
+                                     separated_pair!(float_literal,
+                                                     char!(','),
+                                                     float_literal),
+                                     char!(','),
+                                     separated_pair!(
+                                         separated_pair!(float_literal,
+                                                         char!(','),
+                                                         float_literal),
+                                         char!(','),
+                                         float_literal)),
+                                 char!(')'))),
+            |((a, d), ((s, h), r))| WaveOp::Adshr(a, d, s, h, r)));
+
+named!(delayed_suffix<WaveOp>,
+       map!(preceded!(tag!(".delayed"),
+                      delimited!(char!('('),
+                                 float_literal,
+                                 char!(')'))),
+            WaveOp::Delayed));
+
+named!(looped_suffix<WaveOp>,
+       value!(WaveOp::Looped, tag!(".looped()")));
+
+named!(mul_suffix<WaveOp>,
+       map!(preceded!(tag!(".mul"),
+                      delimited!(char!('('),
+                                 any_wave,
+                                 char!(')'))),
+            WaveOp::Mul));
+
+// ========================================================================= //
+
 named!(float_literal<f32>,
        map_res!(map_res!(recognize!(pair!(pair!(opt!(char!('-')),
                                                 nom::digit),
@@ -129,6 +197,7 @@ fn main() {
     } else {
         b"sine(440)"
     };
+    // TODO: fail parse if we don't consume the whole input
     let wave = match any_wave(spec) {
         nom::IResult::Done(_, wave) => wave,
         _ => {
@@ -149,6 +218,7 @@ fn main() {
                                 })
                                 .unwrap();
     device.resume();
+    // TODO: exit when wave terminates
     std::thread::sleep(Duration::from_millis(2000));
 }
 
