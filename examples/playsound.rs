@@ -216,9 +216,8 @@ fn main() {
     } else {
         b"sine(440)"
     };
-    // TODO: fail parse if we don't consume the whole input
     let wave = match any_wave(spec) {
-        nom::IResult::Done(_, wave) => wave,
+        nom::IResult::Done(rest, ref wave) if rest.is_empty() => wave.clone(),
         _ => {
             println!("Failed to parse spec.");
             return;
