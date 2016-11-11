@@ -5,7 +5,7 @@ extern crate sdl2;
 
 use itersynth::{Wave, WaveGen};
 use std::str::{self, FromStr};
-use std::time::Duration;
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 
 // ========================================================================= //
 
@@ -167,13 +167,18 @@ named!(float_literal<f32>,
 struct WaveCallback {
     wave: itersynth::Wave,
     step: f32,
+    notification: Arc<(Mutex<bool>, Condvar)>,
 }
 
 impl WaveCallback {
-    fn new(wave: itersynth::Wave, audio_rate: i32) -> WaveCallback {
+    fn new(wave: itersynth::Wave,
+           audio_rate: i32,
+           notification: Arc<(Mutex<bool>, Condvar)>)
+           -> WaveCallback {
         WaveCallback {
             wave: wave,
             step: 1.0 / audio_rate as f32,
+            notification: notification,
         }
     }
 }
@@ -182,8 +187,22 @@ impl sdl2::audio::AudioCallback for WaveCallback {
     type Channel = itersynth::Sample;
 
     fn callback(&mut self, out: &mut [itersynth::Sample]) {
+        let mut done = false;
         for sample in out.iter_mut() {
-            *sample = self.wave.next(self.step).unwrap_or(0.0);
+            *sample = match self.wave.next(self.step) {
+                Some(value) => value,
+                None => {
+                    done = true;
+                    0.0
+                }
+            };
+        }
+        if done {
+            // Signal that the sound is complete.
+            let &(ref lock, ref cvar) = &*self.notification;
+            let mut done_guard: MutexGuard<bool> = lock.lock().unwrap();
+            *done_guard = true;
+            cvar.notify_all();
         }
     }
 }
@@ -206,6 +225,8 @@ fn main() {
         }
     };
 
+    let notification = Arc::new((Mutex::new(false), Condvar::new()));
+
     let sdl_context = sdl2::init().unwrap();
     let audio_subsystem = sdl_context.audio().unwrap();
     let desired_spec = sdl2::audio::AudioSpecDesired {
@@ -214,12 +235,19 @@ fn main() {
         samples: None, // default sample size
     };
     let device = audio_subsystem.open_playback(None, &desired_spec, |spec| {
-                                    WaveCallback::new(wave, spec.freq)
+                                    WaveCallback::new(wave,
+                                                      spec.freq,
+                                                      notification.clone())
                                 })
                                 .unwrap();
     device.resume();
-    // TODO: exit when wave terminates
-    std::thread::sleep(Duration::from_millis(2000));
+
+    // Wait for the sound to complete.
+    let &(ref lock, ref cvar) = &*notification;
+    let mut done_guard: MutexGuard<bool> = lock.lock().unwrap();
+    while !*done_guard {
+        done_guard = cvar.wait(done_guard).unwrap();
+    }
 }
 
 // ========================================================================= //
