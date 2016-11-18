@@ -27,9 +27,7 @@ pub trait WaveGen: Send {
 }
 
 impl WaveGen for Sample {
-    fn next(&mut self, _: f32) -> Option<Sample> {
-        Some(*self)
-    }
+    fn next(&mut self, _: f32) -> Option<Sample> { Some(*self) }
 
     fn reset(&mut self) {}
 
@@ -100,18 +98,17 @@ impl Wave {
     }
 
     /// Returns a new waveform that repeats this one forever.
-    pub fn looped(self) -> Wave {
-        Wave::new(Box::new(Looped { wave: self }))
+    pub fn looped(self) -> Wave { Wave::new(Box::new(Looped { wave: self })) }
+
+    /// Returns a new waveform that repeats this one a fixed number of times.
+    pub fn repeated(self, num_times: i32) -> Wave {
+        Wave::new(Box::new(Repeated::new(self, num_times)))
     }
 
     /// Returns a new waveform by constraining this one with an ADSHR (attack,
     /// decay, sustain, hold, release) envelope.
-    pub fn adshr(self,
-                 attack_time: f32,
-                 decay_time: f32,
-                 sustain_level: f32,
-                 hold_time: f32,
-                 release_time: f32)
+    pub fn adshr(self, attack_time: f32, decay_time: f32, sustain_level: f32,
+                 hold_time: f32, release_time: f32)
                  -> Wave {
         Wave::new(Box::new(Adshr {
             attack_time: attack_time,
@@ -140,9 +137,7 @@ impl Clone for Wave {
 }
 
 impl From<Sample> for Wave {
-    fn from(sample: Sample) -> Wave {
-        Wave::new(Box::new(sample))
-    }
+    fn from(sample: Sample) -> Wave { Wave::new(Box::new(sample)) }
 }
 
 impl<W: Into<Wave>> Mul<W> for Wave {
@@ -161,9 +156,7 @@ impl WaveGen for Wave {
         self.generator.next(step)
     }
 
-    fn reset(&mut self) {
-        self.generator.reset();
-    }
+    fn reset(&mut self) { self.generator.reset(); }
 
     fn as_wave(&self) -> Wave { self.generator.as_wave() }
 }
@@ -209,9 +202,7 @@ impl WaveGen for Adshr {
         Some(value)
     }
 
-    fn reset(&mut self) {
-        self.time = 0.0
-    }
+    fn reset(&mut self) { self.time = 0.0 }
 
     fn as_wave(&self) -> Wave { Wave::new(Box::new(self.clone())) }
 }
@@ -274,9 +265,7 @@ impl WaveGen for Looped {
         })
     }
 
-    fn reset(&mut self) {
-        self.wave.reset();
-    }
+    fn reset(&mut self) { self.wave.reset(); }
 
     fn as_wave(&self) -> Wave { Wave::new(Box::new(self.clone())) }
 }
@@ -415,6 +404,47 @@ impl WaveGen for PulseWave {
 
 // ========================================================================= //
 
+/// A waveform consisting of some other waveform, repeated a fixed number of
+/// times.
+#[derive(Clone)]
+struct Repeated {
+    wave: Wave,
+    num_times: i32,
+    count: i32,
+}
+
+impl Repeated {
+    fn new(wave: Wave, num_times: i32) -> Repeated {
+        Repeated {
+            wave: wave,
+            num_times: num_times,
+            count: 0,
+        }
+    }
+}
+
+impl WaveGen for Repeated {
+    fn next(&mut self, step: f32) -> Option<Sample> {
+        while self.count < self.num_times {
+            if let Some(sample) = self.wave.next(step) {
+                return Some(sample);
+            }
+            self.wave.reset();
+            self.count += 1;
+        }
+        None
+    }
+
+    fn reset(&mut self) {
+        self.wave.reset();
+        self.count = 0;
+    }
+
+    fn as_wave(&self) -> Wave { Wave::new(Box::new(self.clone())) }
+}
+
+// ========================================================================= //
+
 /// A variable-frequency sine wave, with an amplitude of 1.
 #[derive(Clone)]
 struct SineWave {
@@ -479,9 +509,7 @@ impl WaveGen for SlideWave {
         Some(self.pos + (self.vel + self.half_acc * time) * time)
     }
 
-    fn reset(&mut self) {
-        self.time = 0.0;
-    }
+    fn reset(&mut self) { self.time = 0.0; }
 
     fn as_wave(&self) -> Wave { Wave::new(Box::new(self.clone())) }
 }

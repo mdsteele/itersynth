@@ -15,6 +15,7 @@ pub enum WaveOp {
     Delayed(f32),
     Looped,
     Mul(Wave),
+    Repeated(i32),
 }
 
 impl WaveOp {
@@ -25,6 +26,7 @@ impl WaveOp {
             WaveOp::Delayed(time) => wave.delayed(time),
             WaveOp::Looped => wave.looped(),
             WaveOp::Mul(other) => wave * other,
+            WaveOp::Repeated(num_times) => wave.repeated(num_times),
         }
     }
 }
@@ -109,7 +111,7 @@ named!(triangle_wave<Wave>,
 
 named!(wave_suffix<WaveOp>,
        alt!(add_suffix | adshr_suffix | delayed_suffix | looped_suffix |
-            mul_suffix));
+            mul_suffix | repeated_suffix));
 
 named!(add_suffix<WaveOp>,
        map!(preceded!(tag!(".add"),
@@ -152,6 +154,13 @@ named!(mul_suffix<WaveOp>,
                                  char!(')'))),
             WaveOp::Mul));
 
+named!(repeated_suffix<WaveOp>,
+       map!(preceded!(tag!(".repeated"),
+                      delimited!(char!('('),
+                                 int_literal,
+                                 char!(')'))),
+            WaveOp::Repeated));
+
 // ========================================================================= //
 
 named!(float_literal<f32>,
@@ -159,6 +168,11 @@ named!(float_literal<f32>,
                                                 nom::digit),
                                           opt!(pair!(char!('.'),
                                                      nom::digit)))),
+                         str::from_utf8),
+                FromStr::from_str));
+
+named!(int_literal<i32>,
+       map_res!(map_res!(recognize!(pair!(opt!(char!('-')), nom::digit)),
                          str::from_utf8),
                 FromStr::from_str));
 
@@ -171,8 +185,7 @@ struct WaveCallback {
 }
 
 impl WaveCallback {
-    fn new(wave: itersynth::Wave,
-           audio_rate: i32,
+    fn new(wave: itersynth::Wave, audio_rate: i32,
            notification: Arc<(Mutex<bool>, Condvar)>)
            -> WaveCallback {
         WaveCallback {
